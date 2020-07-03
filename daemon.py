@@ -7,11 +7,13 @@ from twisted.internet.endpoints import TCP4ServerEndpoint, TCP4ClientEndpoint, c
 from twisted.protocols.basic import LineReceiver
 from twisted.internet.task import LoopingCall
 
-import os, sys
+import os
+import sys
 import re
 import socket
 
 from command import Command
+
 
 def catch(func):
     '''Decorator to catch errors inside functions and print tracebacks'''
@@ -24,15 +26,16 @@ def catch(func):
 
     return wrapper
 
+
 class SimpleProtocol(Protocol):
     """Class corresponding to a single connection, either incoming or outgoing"""
     _debug = False
 
     # Some sensible TCP keepalive settings. This way the connection will close after 13 seconds of network failure
-    _tcp_keepidle = 10 # Interval to wait before sending first keepalive packet
-    _tcp_keepintvl = 1 # Interval between packets
-    _tcp_keepcnt = 3 # Number of retries
-    _tcp_user_timeout = 10000 # Number of milliseconds to wait before closing the connection on retransmission
+    _tcp_keepidle = 10  # Interval to wait before sending first keepalive packet
+    _tcp_keepintvl = 1  # Interval between packets
+    _tcp_keepcnt = 3  # Number of retries
+    _tcp_user_timeout = 10000  # Number of milliseconds to wait before closing the connection on retransmission
     _refresh = 1.0
 
     def __init__(self, refresh=0):
@@ -153,7 +156,7 @@ class SimpleProtocol(Protocol):
             self.factory._reactor.stop()
         else:
             return cmd
-        
+
         return None
 
     def processBinary(self, data):
@@ -164,18 +167,20 @@ class SimpleProtocol(Protocol):
     def update(self):
         pass
 
+
 class SimpleFactory(Factory):
     """
     Class that manages all connections, both incoming and outgoing.
     Every connection receives the object passed to class constructor
     so it may be accessed from connection protocol
     """
+
     def __init__(self, protocol, object=None, reactor=None, name=None, type=None):
         self._protocol = protocol
         self._reactor = reactor
 
-        self.connections = [] # List of all currently active connections
-        self.object = object # User-supplied object what should be accessible by all connections and daemon itself
+        self.connections = []  # List of all currently active connections
+        self.object = object  # User-supplied object what should be accessible by all connections and daemon itself
 
         # Name and type of the daemon
         self.name = ''
@@ -244,4 +249,4 @@ class SimpleFactory(Factory):
     def log(self, message, type='info'):
         """Generic interface for sending system-level log messages, to be stored to DB and shown in GUI"""
         # TODO: should we send it to specific names/types only?
-        self.messageAll(type + ' ' + message, name = 'monitor')
+        self.messageAll(type + ' ' + message, name='monitor')
