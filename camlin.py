@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 import os
 import sys
@@ -28,46 +28,48 @@ class DaemonProtocol(SimpleProtocol):
             keys = ['hw_connected', 'lamp', 'wavelength', 'grating', 'grooves', 'blaze', 'filter', 'shutter', 'autofilter']
 
             self.message('status ' + ' '.join([_+'='+str(obj.get(_)) for _ in keys]))
-        elif obj['hw_connected']:
+        while obj['hw_connected']:
             # Accept commands only when HW is connected
-
-            if cmd.name == 'set':
-                filter = int(cmd.get('filter', obj.get('filter')))
-                shutter = int(cmd.get('shutter', obj.get('shutter')))
-                grating = int(cmd.get('grating', obj.get('grating')))
-                lamp = cmd.get('lamp', obj.get('lamp'))
-                wavelength = float(cmd.get('wavelength', obj.get('wavelength')))
-
-                if cmd.has_key('autofilter'):
-                    obj['autofilter'] = int(cmd.get('autofilter'))
-
-                if grating != obj.get('grating') or wavelength != obj.get('wavelength'):
-                    self.factory.log("Moving grating %d to wavelength %g" % (grating, wavelength))
-
-                    if hw.move_to_wavelength(grating, wavelength) != 0:
-                        self.factory.log(hw.GetErrorName(hw.result))
-
-                    if obj['autofilter']:
-                        filters = [None, 395, 695, 1000, None, None]
-                        filter = 1
-                        for _, __ in enumerate(filters):
-                            if __ and __ < wavelength:
-                                filter = _ + 1
-
-                if lamp != obj.get('lamp'):
-                    self.factory.log('Swithing to '+lamp+' lamp')
-                    if hw.set_mirror_position(1, self.lampDict[lamp]) != 0:
-                        self.factory.log(hw.GetErrorName(hw.result))
-
-                if filter != obj.get('filter'):
-                    self.factory.log('Setting filter to %d' % filter)
+            if string.startswith('set filter'):
+                val = int(string.split('=')[1])
+                if obj.get('filter') != val:
                     if hw.set_filterwheel_position(obj['hw_filterwheel'], filter) != 0:
                         self.factory.log(hw.GetErrorName(hw.result))
+                break
+            if string.startswith('set autofilter'):
+                val = int(string.split('=')[1])
+                obj['autofilter'] = val
+                break
 
-                if shutter != obj.get('shutter'):
-                    self.factory.log('Setting shutter to %d' % shutter)
-                    if (shutter and hw.open_shutter(obj['hw_shutter']) != 0) or (not shutter and hw.close_shutter(obj['hw_shutter']) != 0):
-                        self.factory.log(hw.GetErrorName(hw.result))
+            if string.startswith('set shutter'):
+                val = int(string.split('=')[1])
+                self.factory.log('Setting shutter to %d' % shutter)
+                if (val and hw.open_shutter(obj['hw_shutter']) != 0) or (not val and hw.close_shutter(obj['hw_shutter']) != 0):
+                    self.factory.log(hw.GetErrorName(hw.result))
+                break
+            grval = obj['grating']
+            wvlval = obj['wavelength']
+            if string.startswith('set grating'):
+                grval = int(string.split('=')[1])
+            if string.startswith('set wavelength'):
+                wvlval = float(string.split('=')[1])
+            if grval != obj.get('grating') or wvlval != obj.get('wavelength'):
+                self.factory.log("Moving grating %d to wavelength %g" % (grating, wavelength))
+                if hw.move_to_wavelength(grating, wavelength) != 0:
+                    self.factory.log(hw.GetErrorName(hw.result))
+                if obj['autofilter']:
+                    filters = [None, 395, 695, 1000, None, None]
+                    filter = 1
+                    for _, __ in enumerate(filters):
+                        if __ and __ < wavelength:
+                            filter = _ + 1
+                break
+            if string.startswith('set lamp'):
+                lamp = string.split('=')[1]
+                self.factory.log('Swithing to '+lamp+' lamp')
+                if hw.set_mirror_position(1, self.lampDict[lamp]) != 0:
+                    self.factory.log(hw.GetErrorName(hw.result))
+                break
             if string.startswith('init '):
                 tti = string.split()[1]
                 num = -1
@@ -81,11 +83,13 @@ class DaemonProtocol(SimpleProtocol):
                     hw.initialise_device(num=num)
                 else:
                     self.factory.log('unknown device to init: '+tti, type='info')
+                break
+            break
 
     @catch
     def update(self):
         hw = obj['hw']
-
+        print ('test hw connection', hw.get_model())
         # print "update"
         if not obj['hw_connected']:
             res = hw.connect()
@@ -93,28 +97,31 @@ class DaemonProtocol(SimpleProtocol):
                 obj['hw_connected'] = 1
 
                 # Print some info
-                print "DLL:", hw.get_dll_version()
-                print "SN:", hw.get_serial_number()
-                print "Firmware:", hw.get_firmware_version()
-                print "Model:", hw.get_model()
+                print ("DLL:", hw.get_dll_version())
+                print ("SN:", hw.get_serial_number())
+                print ("Firmware:", hw.get_firmware_version())
+                print ("Model:", hw.get_model())
 
                 # Perform an initialization
-                # FIXME: make it configurable?..
-                hw.move_to_wavelength(1, 550.0)
+                hw.initialise_device(1)
+                hw.get_current_grating()
+                hw.move_to_wavelength(1, 600)
                 hw.close_shutter(obj['hw_shutter'])
-                hw.set_filterwheel_position(obj['hw_filterwheel'], 2)
+                hw.set_filterwheel_position(obj['hw_filterwheel'], 1)
+                obj['autofilter'] = 0
 
         if obj['hw_connected']:
-            obj['lamp'] = self.lampDict[hw.get_mirror_position(1)]
-            obj['wavelength'] = hw.get_wavelength()
-            obj['grating'] = hw.get_current_grating()
-            obj['grooves'] = hw.get_grooves(obj['grating'])
-            obj['blaze'] = hw.get_blaze(obj['grating'])
-            obj['filter'] = hw.get_filterwheel_position(obj['hw_filterwheel'])
-            obj['shutter'] = 1 if hw.is_shutter_open(obj['hw_shutter']) else 0
-
-            if obj['grooves'] is None:
+            if hw.get_model() is None:
                 obj['hw_connected'] = 0
+                hw.disconnect()
+            else:
+                obj['lamp'] = self.lampDict[hw.get_mirror_position(1)]
+                obj['wavelength'] = hw.get_wavelength()
+                obj['grating'] = hw.get_current_grating()
+                obj['grooves'] = hw.get_grooves(obj['grating'])
+                obj['blaze'] = hw.get_blaze(obj['grating'])
+                obj['filter'] = hw.get_filterwheel_position(obj['hw_filterwheel'])
+                obj['shutter'] = 1 if hw.is_shutter_open(obj['hw_shutter']) else 0
 
 
 if __name__ == '__main__':
