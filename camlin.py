@@ -89,7 +89,6 @@ class DaemonProtocol(SimpleProtocol):
     @catch
     def update(self):
         hw = obj['hw']
-        print ('test hw connection', hw.get_model())
         # print "update"
         if not obj['hw_connected']:
             res = hw.connect()
