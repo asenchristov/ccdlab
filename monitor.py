@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 from twisted.internet import stdio
 from twisted.protocols.basic import LineReceiver
@@ -6,19 +6,20 @@ from twisted.web.server import Site
 from twisted.web.resource import Resource
 from twisted.web.static import File
 from twisted.internet.endpoints import TCP4ServerEndpoint
-from txsockjs.factory import SockJSResource
+#from txsockjs.factory import SockJSResource
+from autobahn.twisted.resource import WebSocketResource
 
 from twistedauth import wrap_with_auth as Auth
 
 import os, sys, posixpath, datetime
 import re
-import urlparse
+import urllib.parse
 import json
 import numpy as np
 
 from collections import OrderedDict
 
-from StringIO import StringIO
+from io import StringIO
 from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
 from matplotlib.figure import Figure
 from matplotlib.dates import DateFormatter
@@ -27,7 +28,7 @@ from matplotlib.ticker import ScalarFormatter, LogLocator, LinearLocator, MaxNLo
 from daemon import SimpleFactory, SimpleProtocol
 from command import Command
 from daemon import catch
-from db import DB
+from db_p3 import DB
 
 def kwargsToString(kwargs, prefix=''):
     return " ".join([prefix + _ + '=' + kwargs[_] for _ in kwargs])
@@ -49,7 +50,7 @@ class MonitorProtocol(SimpleProtocol):
 
     @catch
     def connectionLost(self, reason):
-        if self.object['clients'].has_key(self.name):
+        if self.name in self.object['clients'].keys():
             self.log("%s disconnected" % self.name, type='info')
             # print "Disconnected:", self.name
 
@@ -58,7 +59,7 @@ class MonitorProtocol(SimpleProtocol):
     @catch
     def processMessage(self, string):
         if self._debug:
-            print "%s:%d > %s" % (self._peer.host, self._peer.port, string)
+            print ("%s:%d > %s" % (self._peer.host, self._peer.port, string))
 
         cmd = Command(string)
 
@@ -66,7 +67,7 @@ class MonitorProtocol(SimpleProtocol):
             self.name = cmd.get('name', None)
             self.type = cmd.get('type', None)
 
-            if self.object['clients'].has_key(self.name):
+            if self.name in self.object['clients'].keys():
                 self.log("%s connected" % self.name, type='info')
                 # print "Connected:", self.name
 
@@ -75,7 +76,7 @@ class MonitorProtocol(SimpleProtocol):
             self.status = cmd.kwargs
 
             # We have to keep the history of values for some variables for plots
-            if self.object['values'].has_key(self.name):
+            if self.name in self.object['values'].keys():
                 for name in self.object['values'][self.name]:
                     if name == 'time':
                         value = datetime.datetime.utcnow()
@@ -98,7 +99,7 @@ class MonitorProtocol(SimpleProtocol):
                 self.factory.messageAll("set_keywords " + " ".join([self.name+'.'+_+'=\"'+self.status[_]+'\"' for _ in self.status.keys()]), type="ccd")
 
             # Store the values to database, if necessary
-            if self.object.has_key('db') and self.object['db'] is not None:
+            if 'db' in self.object.keys() and self.object['db'] is not None:
                 if (datetime.datetime.utcnow() - self.object['db_status_timestamp']).total_seconds() > self.object['db_status_interval']:
                     # FIXME: should we also store the status if no peer is reporting at all?
                     # print "Storing the state to DB"
@@ -141,7 +142,7 @@ class MonitorProtocol(SimpleProtocol):
 class WSProtocol(SimpleProtocol):
     def message(self, string):
         """Sending outgoing message with no newline"""
-        self.transport.write(string)
+        self.transport.write(str.encode(string))
 
 class MonitorFactory(SimpleFactory):
     @catch
@@ -181,14 +182,14 @@ class MonitorFactory(SimpleFactory):
         if source is None:
             source = 'monitor'
 
-        print "%s: %s > %s > %s" % (time, source, type, msg)
+        print ("%s: %s > %s > %s" % (time, source, type, msg))
 
         # DB
-        if self.object.has_key('db') and self.object['db'] is not None:
+        if 'db' in self.object.keys() and self.object['db'] is not None:
             self.object['db'].log(msg, time=time, source=source, type=type)
 
         # WebSockets
-        if self.object.has_key('ws'):
+        if 'ws' in self.object.keys():
             self.object['ws'].messageAll(json.dumps({'msg':msg, 'time':str(time), 'source':source, 'type':type}))
 
     @catch
@@ -330,9 +331,9 @@ class WebMonitor(Resource):
 
     @catch
     def render_GET(self, request):
-        q = urlparse.urlparse(request.uri)
-        args = urlparse.parse_qs(q.query)
-        qs = q.path.split('/')
+        q = urllib.parse.urlparse(request.uri)
+        args = urllib.parse.parse_qs(q.query)
+        qs = q.path.split(str.encode('/'))
 
         if q.path == '/monitor/status':
             return serve_json(request,
@@ -416,8 +417,8 @@ def loadINI(filename, obj):
     if len(conf):
         result = conf.validate(Validator())
         if result != True:
-            print "Config file failed validation: %s" % confname
-            print result
+            print ("Config file failed validation: %s" % confname)
+            print (result)
 
             raise RuntimeError
 
@@ -432,8 +433,7 @@ def loadINI(filename, obj):
             client['name'] = sname
 
             obj['values'][sname] = {}
-
-            if section.has_key('plots'):
+            if 'plots' in section.keys():
                 values = []
 
                 # Parse parameters of plots
@@ -468,9 +468,9 @@ if __name__ == '__main__':
     parser = OptionParser(usage="usage: %prog [options] name1=host1:port1 name2=host2:port2 ...")
     parser.add_option('-p', '--port', help='Daemon port', action='store', dest='port', type='int', default=obj['port'])
     parser.add_option('-H', '--http-port', help='HTTP server port', action='store', dest='http_port', type='int', default=obj['http_port'])
-    parser.add_option('-D', '--db-host', help='Database server host', action='store', dest='db_host', type='string', default=obj['db_host'])
+    parser.add_option('-d', '--db-host', help='Database server host', action='store', dest='db_host', type='string', default=obj['db_host'])
     parser.add_option('-n', '--name', help='Daemon name', action='store', dest='name', type='string', default=obj['name'])
-    parser.add_option('-d', '--debug', help='Debug output', action='store_true', dest='debug', default=False)
+    parser.add_option('-D', '--debug', help='Debug output', action='store_true', dest='debug', default=False)
     parser.add_option('-s', '--server', help='Act as a TCP and HTTP server', action='store_true', dest='server', default=False)
     parser.add_option('-i', '--interval', help='DB logging status inteval', dest='interval', type='float', default=obj['db_status_interval'])
     parser.add_option('-a', '--auth_file', help='passwords file', action='store', dest='passwdF', type='string') #htpasswd -c -d passwdfile user
@@ -507,26 +507,27 @@ if __name__ == '__main__':
 
     if options.server:
         # Listen for incoming TCP connections
-        print "Listening for incoming TCP connections on port %d" % options.port
+        print ("Listening for incoming TCP connections on port %d" % options.port)
         daemon.listen(options.port)
 
         # Serve files from web
         root = File("web")
-        root.putChild("", File('web/main.html'))
-        root.putChild("monitor", WebMonitor(factory=daemon, object=obj))
+        root.putChild(str.encode(""), File('web/main.html'))
+        root.putChild(str.encode("monitor"), WebMonitor(factory=daemon, object=obj))
         #site = Site(root)
         site = Site(Auth(root,options.passwdF))
 
         # WebSockets
         ws = SimpleFactory(WSProtocol, obj)
         obj['ws'] = ws
-        root.putChild("ws", SockJSResource(ws))
+        #root.putChild("ws", SockJSResource(ws))
+        root.putChild(str.encode("ws"), WebSocketResource(ws))
 
         # Database connection
         obj['db'] = DB(dbhost=options.db_host)
         obj['db_status_timestamp'] = datetime.datetime.utcfromtimestamp(0)
 
-        print "Listening for incoming HTTP connections on port %d" % options.http_port
+        print ("Listening for incoming HTTP connections on port %d" % options.http_port)
         TCP4ServerEndpoint(daemon._reactor, options.http_port).listen(site)
         
     daemon._reactor.run()
