@@ -1,4 +1,5 @@
-from zope.interface import implements
+#!/usr/bin/env python3
+from zope.interface import implementer
 from twisted.cred.portal import IRealm, Portal
 from twisted.web.guard import BasicCredentialFactory, HTTPAuthSessionWrapper
 from twisted.web.resource import IResource
@@ -8,8 +9,10 @@ from twisted.internet.defer import succeed, fail
 import crypt
 from twisted.cred.error import UnauthorizedLogin
 
+# passwd file creation: htpasswd -c -d path_to_file <username>
+
+@implementer(IRealm)
 class PublicHTMLRealm(object):
-    implements(IRealm)
 
     def __init__(self, resource):
         self._resource = resource
@@ -19,8 +22,8 @@ class PublicHTMLRealm(object):
             return (IResource, self._resource, lambda: None)
         raise NotImplementedError()
     
+@implementer(ICredentialsChecker)  
 class PasswordDictCredentialChecker(object):
-    implements(ICredentialsChecker)
     credentialInterfaces = (IUsernamePassword,)
 
     def __init__(self, passwords_file):
@@ -31,8 +34,8 @@ class PasswordDictCredentialChecker(object):
         pwdf.close()
 
     def requestAvatarId(self, credentials):
-        matched = self.passwords.get(credentials.username, None)
-        if matched and matched == crypt.crypt(credentials.password, matched[:2]):
+        matched = self.passwords.get(credentials.username.decode(), None)
+        if matched and matched == crypt.crypt(credentials.password.decode(), matched[:2]):
             return succeed(credentials.username)
         else:
             return fail(UnauthorizedLogin("Invalid username or password"))
